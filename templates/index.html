@@ -1,0 +1,160 @@
+<!-- templates/index.html -->
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Smart Plant Monitor</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; margin: 12px; }
+    .card { box-shadow: 0 4px 10px rgba(0,0,0,0.08); border-radius: 10px; padding: 16px; margin-bottom: 12px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 12px; }
+    .big { font-size: 1.4rem; font-weight: 600; }
+    .small { color: #555; font-size: 0.9rem; }
+    #charts { display: grid; grid-template-columns: 1fr; gap: 12px; }
+  </style>
+</head>
+<body>
+  <h1>🌱 Smart Plant Monitor</h1>
+  <div class="grid">
+    <div class="card">
+      <div class="big" id="temp">-- °C</div>
+      <div class="small">Temperature</div>
+    </div>
+    <div class="card">
+      <div class="big" id="moist">-- %</div>
+      <div class="small">Soil Moisture</div>
+    </div>
+    <div class="card">
+      <div class="big" id="light">-- lux</div>
+      <div class="small">Light</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:12px;">
+    <div class="small">Last updated: <span id="lastts">--</span></div>
+  </div>
+
+  <div id="charts">
+    <div class="card">
+      <canvas id="chartTemp" height="120"></canvas>
+    </div>
+    <div class="card">
+      <canvas id="chartMoist" height="120"></canvas>
+    </div>
+    <div class="card">
+      <canvas id="chartLight" height="120"></canvas>
+    </div>
+  </div>
+
+<script>
+const API_BASE = "/api";
+
+function formatNum(n, decimals=2){
+  return parseFloat(n).toFixed(decimals);
+}
+
+async function fetchLatest(){
+  try {
+    const res = await fetch(API_BASE + "/latest");
+    const j = await res.json();
+    if(j.status === "ok" && j.data){
+      const d = j.data;
+      document.getElementById("temp").innerText = formatNum(d.temperature) + " °C";
+      document.getElementById("moist").innerText = formatNum(d.moisture) + " %";
+      document.getElementById("light").innerText = formatNum(d.light,1) + " lux";
+      document.getElementById("lastts").innerText = d.timestamp;
+      // also append to charts
+      pushDataToCharts(d.timestamp, d.temperature, d.moisture, d.light);
+    }
+  } catch (e) {
+    console.error("Failed to fetch latest:", e);
+  }
+}
+
+async function fetchHistory(){
+  try {
+    const res = await fetch(API_BASE + "/history?limit=200");
+    const j = await res.json();
+    if(j.status === "ok"){
+      const data = j.data;
+      const labels = data.map(x => x.timestamp);
+      const temps  = data.map(x => x.temperature);
+      const moists = data.map(x => x.moisture);
+      const lights = data.map(x => x.light);
+      setChartData(labels, temps, moists, lights);
+    }
+  } catch (e) {
+    console.error("Failed to fetch history:", e);
+  }
+}
+
+/* Chart setup */
+let chartTemp, chartMoist, chartLight;
+function createCharts(){
+  const ctxT = document.getElementById('chartTemp').getContext('2d');
+  chartTemp = new Chart(ctxT, {
+    type: 'line',
+    data: { labels: [], datasets: [{ label: 'Temperature (°C)', data: [], fill:false, tension:0.2 }]},
+    options: { animation:false, scales:{ x:{ display:true }, y:{ beginAtZero:false }}}
+  });
+
+  const ctxM = document.getElementById('chartMoist').getContext('2d');
+  chartMoist = new Chart(ctxM, {
+    type: 'line',
+    data: { labels: [], datasets: [{ label: 'Soil Moisture (%)', data: [], fill:true, tension:0.2 }]},
+    options: { animation:false, scales:{ x:{ display:true }, y:{ beginAtZero:true, max:100 }}}
+  });
+
+  const ctxL = document.getElementById('chartLight').getContext('2d');
+  chartLight = new Chart(ctxL, {
+    type: 'line',
+    data: { labels: [], datasets: [{ label: 'Light (lux)', data: [], fill:false, tension:0.2 }]},
+    options: { animation:false, scales:{ x:{ display:true }, y:{ beginAtZero:true }}}
+  });
+}
+
+function setChartData(labels, temps, moists, lights){
+  chartTemp.data.labels = labels;
+  chartTemp.data.datasets[0].data = temps;
+  chartMoist.data.labels = labels;
+  chartMoist.data.datasets[0].data = moists;
+  chartLight.data.labels = labels;
+  chartLight.data.datasets[0].data = lights;
+  chartTemp.update();
+  chartMoist.update();
+  chartLight.update();
+}
+
+function pushDataToCharts(ts, t, m, l){
+  // append, but keep only last 200 points
+  const maxPoints = 200;
+  chartTemp.data.labels.push(ts);
+  chartTemp.data.datasets[0].data.push(t);
+  chartMoist.data.labels.push(ts);
+  chartMoist.data.datasets[0].data.push(m);
+  chartLight.data.labels.push(ts);
+  chartLight.data.datasets[0].data.push(l);
+
+  if(chartTemp.data.labels.length > maxPoints){
+    chartTemp.data.labels.shift();
+    chartTemp.data.datasets[0].data.shift();
+    chartMoist.data.labels.shift();
+    chartMoist.data.datasets[0].data.shift();
+    chartLight.data.labels.shift();
+    chartLight.data.datasets[0].data.shift();
+  }
+  chartTemp.update();
+  chartMoist.update();
+  chartLight.update();
+}
+
+/* Start */
+createCharts();
+fetchHistory();          // initial history
+fetchLatest();           // initial live value
+setInterval(fetchLatest, 2000);  // poll every 2s
+</script>
+</body>
+</html>
